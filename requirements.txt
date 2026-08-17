@@ -1,0 +1,4 @@
+ccxt==4.4.55
+pydantic==2.10.6
+PyYAML==6.0.2
+websockets==14.2

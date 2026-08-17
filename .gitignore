@@ -1,0 +1,19 @@
+# Secrets - ne JAMAIS committer
+.env
+*.pem
+*.key
+
+# Etat runtime et logs
+logs/*.log
+logs/*.log.*
+state/*.json
+stats/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
