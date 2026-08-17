@@ -9,6 +9,10 @@ logs/*.log.*
 state/*.json
 stats/
 
+# Graphe de connaissance genere localement (graphify), reconstructible via
+# `graphify extract . --code-only`
+graphify-out/
+
 # Python
 __pycache__/
 *.py[cod]
