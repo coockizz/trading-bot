@@ -1,4 +1,8 @@
-ccxt==4.4.55
-pydantic==2.10.6
-PyYAML==6.0.2
-websockets==14.2
+# Fourchettes de versions plutot que des versions exactes : une version
+# figee finit toujours par disparaitre ou devenir incompatible, et
+# l'installation casse chez l'utilisateur. La borne majeure protege des
+# changements incompatibles.
+ccxt>=4.5,<5
+pydantic>=2.9,<3
+PyYAML>=6,<7
+websockets>=13,<16

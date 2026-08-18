@@ -25,4 +25,4 @@ VOLUME ["/app/logs", "/app/state"]
 
 # Dry-run par defaut : demarrer l'image ne peut pas engager de fonds reels.
 ENTRYPOINT ["python", "-m", "src.main"]
-CMD ["--config", "config/binance_testnet.yaml"]
+CMD ["--config", "config/testnet.yaml"]

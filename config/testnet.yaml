@@ -1,0 +1,38 @@
+# =====================================================================
+#  CONFIGURATION TESTNET - a utiliser pour apprendre
+#  Argent fictif, aucun risque. C'est le fichier a lancer en premier.
+# =====================================================================
+
+# Profil de risque : prudent | equilibre | agressif
+# Il regle d'un coup la largeur de la plage, le nombre de niveaux et les
+# limites de perte. Tu peux surcharger n'importe quelle valeur plus bas.
+profile: equilibre
+
+exchange:
+  testnet: true                  # cles TESTNET obligatoires
+  api_key_env: BINANCE_API_KEY
+  api_secret_env: BINANCE_API_SECRET
+
+symbol: BTCUSDT
+
+# true  = le bot calcule ses ordres mais n'envoie RIEN a Binance
+# false = ordres reels (necessite aussi --live sur la ligne de commande)
+dry_run: true
+
+strategy:
+  capital_usdt: 3000             # solde fictif d'un compte testnet
+  # price_range et num_grids sont volontairement absents : le bot calcule
+  # lui-meme une plage centree sur le prix actuel et le nombre de niveaux
+  # que ton capital permet. C'est le mode recommande.
+
+alerts:
+  enabled: false                 # passe a true apres avoir mis ton webhook
+  webhook_url_env: DISCORD_WEBHOOK_URL
+
+monitoring:
+  summary_enabled: true
+  summary_interval_hours: 4      # un resume toutes les 4 heures
+
+logging:
+  level: INFO
+  file: logs/bot.log

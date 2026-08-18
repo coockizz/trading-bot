@@ -1,0 +1,44 @@
+# Service systemd : fait tourner le bot en permanence sur un serveur Linux.
+#
+# INSTALLATION
+#   1. Adapte User, WorkingDirectory et ExecStart ci-dessous a ton chemin reel.
+#   2. sudo cp deploy/trading-bot.service /etc/systemd/system/
+#   3. sudo systemctl daemon-reload
+#   4. sudo systemctl enable --now trading-bot
+#
+# COMMANDES UTILES
+#   sudo systemctl status trading-bot     -> etat actuel
+#   sudo journalctl -u trading-bot -f     -> logs en direct
+#   sudo systemctl stop trading-bot       -> arret
+
+[Unit]
+Description=Bot de grid trading Binance Futures
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=trading
+WorkingDirectory=/home/trading/trading-bot
+EnvironmentFile=/home/trading/trading-bot/.env
+ExecStart=/home/trading/trading-bot/.venv/bin/python -m src.main --config config/prod.yaml --live
+
+# Redemarre apres un plantage ou une coupure reseau, mais JAMAIS apres un
+# kill-switch : le code de sortie 2 est un arret volontaire du bot apres une
+# perte trop importante. Le relancer automatiquement repeterait cette perte.
+Restart=on-failure
+RestartPreventExitStatus=2
+RestartSec=30s
+
+# Le bot n'a besoin d'ecrire que dans son propre dossier.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/trading/trading-bot/logs /home/trading/trading-bot/state
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

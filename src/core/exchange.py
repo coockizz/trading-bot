@@ -11,8 +11,9 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from src.core.logger import get_logger
+from src.core.security import ApiPermissions, parse_permissions
 from src.models.config import BotConfig, resolve_credentials
-from src.models.domain import Fill, Order, OrderIntent, Position, Side, SymbolFilters
+from src.models.domain import Candle, Fill, Order, OrderIntent, Position, Side, SymbolFilters
 from src.utils.helpers import fee_for, mask_secret, retry_async, round_to_step, round_to_tick
 
 logger = get_logger("exchange")
@@ -75,6 +76,14 @@ class BaseExchange(ABC):
 
     @abstractmethod
     async def poll_fills(self, mark_price: float) -> list[Fill]: ...
+
+    @abstractmethod
+    async def fetch_candles(self, limit: int = 14) -> list[Candle]:
+        """Bougies journalieres recentes, pour mesurer la volatilite."""
+
+    async def fetch_permissions(self) -> ApiPermissions:
+        """Permissions de la cle API. Inconnues par defaut."""
+        return ApiPermissions.unknown()
 
     async def cancel_all_orders(self) -> None:
         for order in await self.get_open_orders():
@@ -180,6 +189,30 @@ class DryRunExchange(BaseExchange):
                 )
             )
         return fills
+
+    async def fetch_candles(self, limit: int = 14) -> list[Candle]:
+        """Bougies synthetiques autour du dernier prix connu.
+
+        En dry-run il n'y a pas d'historique reel : on simule une amplitude
+        journaliere de 3%, proche de la volatilite habituelle de BTC. Cela
+        suffit a dimensionner une grille de demonstration ; en mode reel les
+        vraies bougies sont utilisees.
+        """
+        reference = self._last_price or self.config.strategy.capital_usdt
+        if self._last_price is None and self.config.strategy.price_range is not None:
+            price_range = self.config.strategy.price_range
+            reference = (price_range.lower + price_range.upper) / 2
+        half = reference * 0.015
+        return [
+            Candle(high=reference + half, low=reference - half, close=reference)
+            for _ in range(limit)
+        ]
+
+    def set_reference_price(self, price: float) -> None:
+        """Fixe le prix de reference avant tout fill (dimensionnement automatique)."""
+        if price <= 0:
+            raise ValueError(f"price doit etre > 0, recu {price}")
+        self._last_price = price
 
     def _apply_trade(self, side: Side, quantity: float, price: float) -> None:
         signed = quantity * side.sign
@@ -367,6 +400,37 @@ class BinanceFuturesExchange(BaseExchange):
             )
         self._cancelled.clear()
         return fills
+
+    async def fetch_candles(self, limit: int = 14) -> list[Candle]:
+        raw = await self._call(
+            lambda: self._client.fetch_ohlcv(self._market_symbol, "1d", None, limit),
+            description="fetch_ohlcv",
+        )
+        candles = [
+            Candle(high=float(row[2]), low=float(row[3]), close=float(row[4]))
+            for row in raw
+            if row and len(row) >= 5
+        ]
+        if not candles:
+            raise ExchangeError("Binance n'a retourne aucune bougie pour ce symbole.")
+        return candles
+
+    async def fetch_permissions(self) -> ApiPermissions:
+        """Interroge l'endpoint des restrictions de cle API.
+
+        Cet endpoint appartient a l'API Spot et n'existe pas sur le testnet
+        Futures : son absence n'est pas une erreur, seulement une verification
+        impossible, signalee comme telle.
+        """
+        try:
+            raw = await self._call(
+                self._client.sapi_get_account_apirestrictions,
+                description="fetch_api_restrictions",
+            )
+        except (ExchangeError, AttributeError) as exc:
+            logger.warning("Permissions de la cle non verifiables : %s", exc)
+            return ApiPermissions.unknown()
+        return parse_permissions(raw)
 
     async def _call(self, operation, *, description: str):
         """Execute un appel ccxt avec retry sur les erreurs transitoires."""

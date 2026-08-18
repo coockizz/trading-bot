@@ -89,3 +89,12 @@ class SymbolFilters:
     step_size: float
     min_notional: float
     min_quantity: float
+
+
+@dataclass(frozen=True, slots=True)
+class Candle:
+    """Bougie OHLC, utilisee pour mesurer la volatilite recente."""
+
+    high: float
+    low: float
+    close: float

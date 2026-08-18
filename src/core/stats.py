@@ -261,6 +261,21 @@ class StatsTracker:
                 ]
             )
 
+    def summary_text(self, *, position_qty: float = 0.0, held_levels: int = 0) -> str:
+        """Resume lisible, destine aux notifications et au fichier de resume."""
+        snap = self.snapshot()
+        return (
+            f"P&L total : {snap.total_pnl:+,.2f} USDT\n"
+            f"P&L du jour : {snap.daily_pnl:+,.2f} USDT\n"
+            f"Trades fermes : {snap.num_closed_trades} (win rate {snap.win_rate_pct:.0f}%)\n"
+            f"Executions : {snap.num_fills}\n"
+            f"Frais payes : {snap.total_fees:,.2f} USDT\n"
+            f"Drawdown max : {snap.max_drawdown_pct:.2f}% "
+            f"(actuel {snap.current_drawdown_pct:.2f}%)\n"
+            f"Position ouverte : {position_qty:+.6f}\n"
+            f"Niveaux detenus : {held_levels}"
+        )
+
     def log_summary(self) -> None:
         snap = self.snapshot()
         logger.info(

@@ -1,0 +1,52 @@
+# =====================================================================
+#  MODELE DE CONFIGURATION REELLE
+#  Copie ce fichier vers config/prod.yaml et adapte-le :
+#      cp config/prod.example.yaml config/prod.yaml
+#  Ne lance ceci qu'apres plusieurs jours concluants sur le testnet.
+# =====================================================================
+
+# 'prudent' est le bon choix pour un premier capital reel : plage large,
+# peu de niveaux, perte du jour plafonnee a 1%.
+profile: prudent
+
+exchange:
+  testnet: false                 # cles MAINNET (avec permission Futures)
+  api_key_env: BINANCE_API_KEY
+  api_secret_env: BINANCE_API_SECRET
+
+# Avec un petit capital, un actif moins cher par unite permet une grille
+# beaucoup plus fine que BTCUSDT (minimum ~100 USDT par ordre).
+symbol: SOLUSDT
+
+# VERROU : tant que cette ligne vaut true, aucun ordre reel n'est envoye.
+# Passe-la a false uniquement quand tu es pret. Le bot exigera en plus
+# l'option --live et une confirmation clavier.
+dry_run: true
+
+strategy:
+  capital_usdt: 200              # mets ici ce que tu acceptes de perdre
+  leverage: 1                    # ne change pas ca
+
+alerts:
+  enabled: true                  # fortement recommande en reel
+  webhook_url_env: DISCORD_WEBHOOK_URL
+  on_trade_closed: true
+  on_drawdown_warning: true
+  on_kill_switch: true
+
+monitoring:
+  summary_enabled: true
+  summary_interval_hours: 24     # un bilan par jour
+
+security:
+  require_no_withdrawal: true    # refuse une cle autorisant les retraits
+  require_futures_permission: true
+  confirm_before_live: true      # mets false pour un lancement automatise
+
+logging:
+  level: INFO
+  file: logs/bot.log
+
+runtime:
+  max_restarts: 10               # redemarrages auto apres coupure reseau
+  restart_delay_s: 30

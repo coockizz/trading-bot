@@ -14,6 +14,8 @@ from typing import Annotated, Literal, NamedTuple
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from src.models.profiles import PROFILES, apply_profile
+
 PositiveFloat = Annotated[float, Field(gt=0)]
 Percent = Annotated[float, Field(gt=0, le=100)]
 
@@ -51,8 +53,16 @@ class PriceRange(_Base):
 
 class StrategyConfig(_Base):
     type: Literal["grid"] = "grid"
-    price_range: PriceRange
-    num_grids: int = Field(default=20, ge=2, le=200)
+    # price_range et num_grids peuvent rester vides : le bot les calcule alors
+    # au demarrage a partir du prix courant, de la volatilite recente et de ton
+    # capital (voir src/core/sizing.py). C'est le mode recommande.
+    price_range: PriceRange | None = None
+    num_grids: int | None = Field(default=None, ge=2, le=200)
+    # Largeur de la plage automatique, en multiples de l'ATR journalier.
+    atr_multiple: float = Field(default=3.0, gt=0, le=20)
+    # Nombre de niveaux vise en mode automatique. Le bot le reduit si le capital
+    # ne permet pas de respecter le notional minimum de l'exchange.
+    target_grids: int = Field(default=12, ge=2, le=200)
     capital_usdt: PositiveFloat
     leverage: int = Field(default=1, ge=1, le=20)
     spacing: Literal["geometric", "arithmetic"] = "geometric"
@@ -61,11 +71,30 @@ class StrategyConfig(_Base):
     active_orders_per_side: int = Field(default=10, ge=1, le=50)
 
     @property
+    def is_auto(self) -> bool:
+        """Vrai si la plage ou le nombre de niveaux doit etre calcule au demarrage."""
+        return self.price_range is None or self.num_grids is None
+
+    @property
+    def resolved_range(self) -> PriceRange:
+        if self.price_range is None:
+            raise ConfigError("price_range n'est pas encore resolu (mode automatique).")
+        return self.price_range
+
+    @property
+    def resolved_grids(self) -> int:
+        if self.num_grids is None:
+            raise ConfigError("num_grids n'est pas encore resolu (mode automatique).")
+        return self.num_grids
+
+    @property
     def capital_per_grid(self) -> float:
-        return self.capital_usdt * self.leverage / self.num_grids
+        return self.capital_usdt * self.leverage / self.resolved_grids
 
     @model_validator(mode="after")
     def _check_capital_per_grid(self) -> StrategyConfig:
+        if self.num_grids is None:
+            return self  # le dimensionnement automatique garantit deja la contrainte
         # Binance Futures impose ~100 USDT de notional minimum par ordre sur les
         # paires majeures. Sans ce garde-fou, le bot demarre puis se fait
         # rejeter chaque ordre, ce qui est bien plus difficile a diagnostiquer.
@@ -110,21 +139,76 @@ class LoggingConfig(_Base):
     backup_count: int = Field(default=5, ge=0, le=50)
 
 
+class AlertsConfig(_Base):
+    """Notifications Discord. Le webhook est lu depuis l'environnement."""
+
+    enabled: bool = False
+    webhook_url_env: str = "DISCORD_WEBHOOK_URL"
+    # Evenements notifies. Desactive ce qui te sature.
+    on_trade_closed: bool = True
+    on_drawdown_warning: bool = True
+    on_kill_switch: bool = True
+    on_start_stop: bool = True
+    # Seuil d'alerte anticipee : 75 = prevenu quand la perte atteint 75% de la
+    # limite de drawdown, donc avant que le kill-switch ne coupe tout.
+    drawdown_warning_pct_of_limit: float = Field(default=75.0, gt=0, le=100)
+    # Nombre maximal de messages par minute, pour ne pas se faire limiter
+    # par Discord ni noyer le canal pendant une chute rapide.
+    max_messages_per_minute: int = Field(default=10, ge=1, le=60)
+    timeout_s: float = Field(default=10.0, gt=0, le=60)
+
+
+class MonitoringConfig(_Base):
+    """Resume periodique de l'activite du bot."""
+
+    summary_enabled: bool = True
+    summary_interval_hours: float = Field(default=4.0, ge=0.25, le=168.0)
+    summary_file: str = "state/summary.json"
+
+
+class SecurityConfig(_Base):
+    """Controles effectues au demarrage, avant tout ordre."""
+
+    # Refuse de demarrer si la cle API autorise les retraits.
+    require_no_withdrawal: bool = True
+    # Refuse de demarrer si la permission Futures manque.
+    require_futures_permission: bool = True
+    # Demande une confirmation clavier avant le premier ordre reel.
+    confirm_before_live: bool = True
+
+
 class RuntimeConfig(_Base):
     # Periode de reconciliation carnet voulu / carnet reel, en secondes.
     reconcile_interval_s: float = Field(default=5.0, ge=0.5, le=300.0)
     state_file: str = "state/bot_state.json"
     stats_file: str = "state/stats.json"
+    # Nombre de redemarrages automatiques apres une erreur transitoire
+    # (reseau, API indisponible). 0 = arret des la premiere erreur.
+    max_restarts: int = Field(default=10, ge=0, le=1000)
+    restart_delay_s: float = Field(default=30.0, ge=1.0, le=3600.0)
 
 
 class BotConfig(_Base):
     exchange: ExchangeConfig = ExchangeConfig()
     symbol: str = Field(default="BTCUSDT", pattern=r"^[A-Z0-9]{4,20}$")
     dry_run: bool = True
+    # Profil de risque pre-regle : prudent, equilibre ou agressif. Les valeurs
+    # ecrites explicitement plus bas ont toujours la priorite.
+    profile: str | None = None
     strategy: StrategyConfig
     risk: RiskConfig = RiskConfig()
+    alerts: AlertsConfig = AlertsConfig()
+    monitoring: MonitoringConfig = MonitoringConfig()
+    security: SecurityConfig = SecurityConfig()
     logging: LoggingConfig = LoggingConfig()
     runtime: RuntimeConfig = RuntimeConfig()
+
+    @model_validator(mode="after")
+    def _check_profile_name(self) -> BotConfig:
+        if self.profile is not None and self.profile not in PROFILES:
+            valid = ", ".join(sorted(PROFILES))
+            raise ValueError(f"profil inconnu : '{self.profile}'. Valeurs possibles : {valid}.")
+        return self
 
 
 class Credentials(NamedTuple):
@@ -146,9 +230,31 @@ def load_config(path: str | Path) -> BotConfig:
         raise ConfigError(f"{path} doit contenir un mapping YAML a la racine.")
 
     try:
+        raw = apply_profile(raw)
+    except ValueError as exc:
+        raise ConfigError(f"Configuration invalide dans {path} : {exc}") from exc
+
+    try:
         return BotConfig.model_validate(raw)
     except ValidationError as exc:
         raise ConfigError(f"Configuration invalide dans {path} :\n{exc}") from exc
+
+
+def resolve_webhook_url(cfg: AlertsConfig) -> str:
+    """Lit l'URL du webhook Discord depuis l'environnement."""
+    url = os.environ.get(cfg.webhook_url_env, "").strip()
+    if not url:
+        raise ConfigError(
+            f"Les alertes sont activees mais la variable {cfg.webhook_url_env} est vide. "
+            "Colle l'URL de ton webhook Discord dans le fichier .env, ou mets "
+            "alerts.enabled a false."
+        )
+    if not url.startswith("https://"):
+        raise ConfigError(
+            f"{cfg.webhook_url_env} ne ressemble pas a une URL de webhook Discord "
+            "(elle doit commencer par https://)."
+        )
+    return url
 
 
 def resolve_credentials(cfg: ExchangeConfig) -> Credentials:

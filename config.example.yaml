@@ -1,0 +1,170 @@
+# =====================================================================
+#  REFERENCE COMPLETE DE CONFIGURATION
+#
+#  Ce fichier documente TOUTES les options disponibles avec leur valeur
+#  par defaut. Tu n'as pas besoin de toutes les ecrire : tout ce que tu
+#  omets prend la valeur indiquee ici.
+#
+#  Pour demarrer, utilise plutot config/testnet.yaml : il est court et
+#  suffit dans 90% des cas.
+# =====================================================================
+
+# ---------------------------------------------------------------------
+# PROFIL DE RISQUE
+# ---------------------------------------------------------------------
+# Regle d'un coup 7 parametres correles. Trois valeurs possibles :
+#
+#   prudent   : plage tres large, 8 niveaux, perte max 1%/jour, 3% au total
+#               -> le bot trade peu mais sort rarement de sa plage
+#   equilibre : plage moyenne, 12 niveaux, perte max 2%/jour, 5% au total
+#               -> compromis par defaut
+#   agressif  : plage serree, 20 niveaux, perte max 3%/jour, 8% au total
+#               -> plus de cycles mais le prix sort souvent de la plage
+#
+# Toute valeur ecrite explicitement plus bas est prioritaire sur le profil.
+profile: equilibre
+
+# ---------------------------------------------------------------------
+# EXCHANGE
+# ---------------------------------------------------------------------
+exchange:
+  name: binance
+  # Le YAML ne contient JAMAIS de cle : seulement le nom de la variable
+  # d'environnement ou la lire (definie dans ton fichier .env).
+  api_key_env: BINANCE_API_KEY
+  api_secret_env: BINANCE_API_SECRET
+  # true = testnet (argent fictif). Doit correspondre au type de tes cles :
+  # une cle testnet ne fonctionne pas en reel, et inversement.
+  testnet: true
+  maker_fee_pct: 0.02        # frais Binance Futures VIP0, ordre limite
+  taker_fee_pct: 0.05        # frais Binance Futures VIP0, ordre au marche
+  recv_window_ms: 5000       # tolerance de decalage d'horloge avec Binance
+
+# Paire tradee. Les contraintes (prix minimum, pas de quantite) sont lues
+# automatiquement chez Binance. Avec un petit capital, prefere un actif
+# moins cher par unite : SOLUSDT ou DOGEUSDT plutot que BTCUSDT.
+symbol: BTCUSDT
+
+# VERROU PRINCIPAL.
+#   true  = le bot calcule tout mais n'envoie AUCUN ordre a Binance
+#   false = ordres reels (il faut en plus l'option --live au lancement)
+dry_run: true
+
+# ---------------------------------------------------------------------
+# STRATEGIE
+# ---------------------------------------------------------------------
+strategy:
+  type: grid
+
+  # Le capital que le bot repartit sur ses niveaux. Ne mets jamais plus
+  # que ce que tu acceptes de perdre entierement.
+  capital_usdt: 3000
+
+  # Levier. Reste a 1. Le bot refuse un levier > 1 sous 1000 USDT de
+  # capital : une meche de quelques pourcents liquiderait la position.
+  leverage: 1
+
+  # --- Dimensionnement automatique (RECOMMANDE) -----------------------
+  # Laisse price_range et num_grids absents : au demarrage, le bot lit le
+  # prix courant et la volatilite des 14 derniers jours, puis calcule une
+  # plage centree sur le marche et le nombre de niveaux que ton capital
+  # permet reellement.
+  #
+  # Largeur de la plage, en multiples de la volatilite journaliere (ATR).
+  # Plus grand = plage plus large = le prix en sort moins souvent, mais
+  # les cycles sont plus rares.
+  atr_multiple: 3.0
+  # Nombre de niveaux souhaite. Le bot le reduit automatiquement si ton
+  # capital ne permet pas de respecter le minimum de Binance par ordre.
+  target_grids: 12
+
+  # --- Dimensionnement manuel (optionnel) -----------------------------
+  # Si tu preferes fixer toi-meme la plage, decommente ces lignes. Elles
+  # desactivent le calcul automatique.
+  # price_range:
+  #   lower: 90000
+  #   upper: 110000
+  # num_grids: 12
+
+  # Repartition des niveaux :
+  #   geometric  = ecart constant en POURCENTAGE (recommande)
+  #   arithmetic = ecart constant en VALEUR ABSOLUE
+  spacing: geometric
+
+  # Nombre d'ordres reellement poses de chaque cote du prix. Les autres
+  # niveaux attendent en memoire. Evite de saturer la limite d'ordres
+  # ouverts de Binance.
+  active_orders_per_side: 5
+
+# ---------------------------------------------------------------------
+# RISQUE
+# ---------------------------------------------------------------------
+risk:
+  # Perte maximale depuis minuit UTC avant que le bot ferme tout et
+  # s'arrete definitivement (kill-switch).
+  max_daily_drawdown_pct: 2.0
+  # Perte maximale depuis le lancement. Doit etre >= au seuil journalier.
+  stop_loss_pct: 5.0
+  # Part maximale du capital engagee sur la position, en pourcentage.
+  # ATTENTION : une valeur trop basse bloque tous les ordres, car Binance
+  # impose un minimum d'environ 100 USDT par ordre. Le bot verifie ce
+  # point au demarrage et refuse de tourner avec une valeur impossible.
+  max_position_size_pct: 40.0
+
+# ---------------------------------------------------------------------
+# ALERTES DISCORD
+# ---------------------------------------------------------------------
+alerts:
+  enabled: false
+  # Nom de la variable d'environnement contenant l'URL du webhook.
+  webhook_url_env: DISCORD_WEBHOOK_URL
+  on_trade_closed: true          # chaque cycle achat/vente termine
+  on_drawdown_warning: true      # avant que le kill-switch ne coupe
+  on_kill_switch: true           # arret d'urgence
+  on_start_stop: true            # demarrage et arret du bot
+  # Alerte anticipee quand la perte atteint ce pourcentage de la limite.
+  # 75 = prevenu a 1.5% de perte si la limite est a 2%.
+  drawdown_warning_pct_of_limit: 75.0
+  max_messages_per_minute: 10    # anti-spam pendant une chute rapide
+  timeout_s: 10.0
+
+# ---------------------------------------------------------------------
+# SURVEILLANCE
+# ---------------------------------------------------------------------
+monitoring:
+  summary_enabled: true
+  summary_interval_hours: 4      # resume toutes les 4 heures
+  summary_file: state/summary.json
+
+# ---------------------------------------------------------------------
+# SECURITE
+# ---------------------------------------------------------------------
+security:
+  # Refuse de demarrer si la cle API autorise les retraits de fonds.
+  require_no_withdrawal: true
+  # Refuse de demarrer si la permission Futures manque.
+  require_futures_permission: true
+  # Demande de taper OUI au clavier avant le premier ordre reel en
+  # mainnet. Mets false pour un lancement automatise (systemd, Docker).
+  confirm_before_live: true
+
+# ---------------------------------------------------------------------
+# LOGS
+# ---------------------------------------------------------------------
+logging:
+  level: INFO                # DEBUG pour tout voir, WARNING pour l'essentiel
+  file: logs/bot.log
+  max_bytes: 10485760        # rotation du fichier a 10 Mo
+  backup_count: 5            # nombre d'archives conservees
+
+# ---------------------------------------------------------------------
+# EXECUTION
+# ---------------------------------------------------------------------
+runtime:
+  reconcile_interval_s: 5.0  # frequence d'alignement du carnet d'ordres
+  state_file: state/bot_state.json
+  stats_file: state/stats.json
+  # Redemarrages automatiques apres une erreur reseau ou API. Le
+  # kill-switch et les erreurs de configuration ne sont jamais rejoues.
+  max_restarts: 10
+  restart_delay_s: 30.0
